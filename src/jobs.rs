@@ -1,4 +1,3 @@
-use aws_config;
 use aws_sdk_s3::Client;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
