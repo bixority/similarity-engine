@@ -19,13 +19,18 @@ pub fn semantic_scores(
         .iter()
         .map(|text| {
             tokenizer
-                .encode(text, true)
-                .map_err(|e| anyhow::anyhow!("Tokenization error: {}", e))
+                .encode(text.as_str(), true)
+                .map_err(|e| anyhow::anyhow!("Tokenization error: {e}"))
         })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, anyhow::Error>>()?;
 
     // Prepare input tensors
-    let max_len = encodings.iter().map(|e| e.get_ids().len()).max().unwrap_or(128).min(128);
+    let max_len = encodings
+        .iter()
+        .map(|e| e.get_ids().len())
+        .max()
+        .unwrap_or(128)
+        .min(128);
     let input_ids: Vec<Vec<u32>> = encodings
         .iter()
         .map(|e| {
@@ -69,7 +74,9 @@ pub fn semantic_scores(
     let query_norm = query_emb.sqr()?.sum_all()?.sqrt()?;
     let candidate_norms = candidate_embs.sqr()?.sum(1)?.sqrt()?;
 
-    let dot_products = candidate_embs.matmul(&query_emb.unsqueeze(1)?)?.squeeze(1)?;
+    let dot_products = candidate_embs
+        .matmul(&query_emb.unsqueeze(1)?)?
+        .squeeze(1)?;
     let scores = dot_products.div(&(candidate_norms.mul(&query_norm)?))?;
 
     // Convert to Vec<f32>

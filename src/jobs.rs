@@ -48,6 +48,6 @@ pub async fn upload_results(
         .content_type("application/json")
         .send()
         .await?;
-    println!("Uploaded results to s3://{}/{}", bucket, key);
+    println!("Uploaded results to s3://{bucket}/{key}");
     Ok(())
 }
