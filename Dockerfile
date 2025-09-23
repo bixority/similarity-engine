@@ -96,8 +96,8 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean
 
 # Create non-root user for security
-RUN groupadd -r -g 1000 appuser && \
-    useradd -r -u 1000 -g appuser -d /app -s /sbin/nologin -c "App User" appuser
+RUN groupadd -r -g 1001 appuser && \
+    useradd -r -u 1001 -g appuser -d /app -s /sbin/nologin -c "App User" appuser
 
 # Create directories with proper permissions
 RUN mkdir -p /app/models /tmp/app && \
