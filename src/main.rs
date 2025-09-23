@@ -4,7 +4,6 @@ mod scoring;
 use crate::jobs::{ScoreResult, download_job_config, upload_results};
 use crate::scoring::semantic_scores;
 use anyhow::Result;
-use aws_config;
 use aws_sdk_s3::Client;
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
