@@ -13,9 +13,13 @@ use tokenizers::Tokenizer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load AWS configuration (credentials provided by AWS Batch IAM role)
+    // Load AWS configuration. The SDK's default provider chain will automatically
+    // detect IAM roles from the Kubernetes service account.
+    println!("Loading AWS configuration...");
     let config = aws_config::load_from_env().await;
     let s3_client = Client::new(&config);
+
+    println!("AWS configuration loaded successfully");
 
     // Read S3 bucket and key from environment variables
     let bucket = env::var("S3_BUCKET").expect("S3_BUCKET environment variable not set");
