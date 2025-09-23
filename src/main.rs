@@ -9,10 +9,8 @@ use aws_sdk_s3::Client;
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config};
-use serde::{Deserialize, Serialize};
 use std::env;
 use tokenizers::Tokenizer;
-use tokio::io::AsyncReadExt;
 
 #[tokio::main]
 async fn main() -> Result<()> {
