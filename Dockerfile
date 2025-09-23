@@ -87,7 +87,7 @@ RUN /app/semantic_scoring --version 2>/dev/null || echo "Binary built successful
 # =============================================================================
 # Runtime stage - Create minimal production image
 # =============================================================================
-FROM 13.0.1-cudnn-runtime-ubuntu24.04 AS runtime
+FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04 AS runtime
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y \
