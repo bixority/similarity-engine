@@ -1,13 +1,13 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
+use aws_config;
 use aws_sdk_s3::Client;
+use candle_core::{DType, Device, Tensor};
+use candle_nn::VarBuilder;
+use candle_transformers::models::bert::{BertModel, Config};
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::io::Read;
-use aws_config::BehaviorVersion;
-use tch::{Device, Tensor, Kind};
 use tokenizers::Tokenizer;
-use candle_core::{DType, Module};
-use candle_transformers::models::bert::{BertModel, Config};
+use tokio::io::AsyncReadExt;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,9 +27,9 @@ async fn main() -> Result<()> {
 
     // Load model and tokenizer
     let model_path = env::var("MODEL_PATH").expect("MODEL_PATH environment variable not set");
-    let device = if tch::Cuda::is_available() {
+    let device = if candle_core::utils::cuda_is_available() {
         println!("Using CUDA device");
-        Device::Cuda(0)
+        Device::new_cuda(0)?
     } else {
         println!("CUDA not available, falling back to CPU");
         Device::Cpu
@@ -47,14 +47,13 @@ async fn main() -> Result<()> {
     let model_config: Config = serde_json::from_str(&config_content)
         .map_err(|e| anyhow::anyhow!("Failed to parse config.json: {}", e))?;
 
-    // Load model
-    let mut vs = tch::nn::VarStore::new(device);
-    let model = BertModel::new(&vs.root(), &model_config)?;
-    vs.load(&format!("{}/pytorch_model.bin", model_path))
-        .map_err(|e| anyhow::anyhow!("Failed to load model weights: {}", e))?;
+    // Load model weights
+    let model_weights_path = format!("{}/model.safetensors", model_path);
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_weights_path], DType::F32, &device)? };
+    let model = BertModel::load(vb, &model_config)?;
 
     // Compute semantic scores
-    let scores = semantic_scores(&model, &tokenizer, &job_config.value, &job_config.values, device)?;
+    let scores = semantic_scores(&model, &tokenizer, &job_config.value, &job_config.values, &device)?;
 
     // Prepare results as JSON
     let results: Vec<ScoreResult> = job_config
@@ -105,10 +104,8 @@ async fn download_job_config(client: &Client, bucket: &str, key: &str) -> Result
         .await?;
 
     let mut data = Vec::new();
-    resp.body
-        .into_async_read()
-        .read_to_end(&mut data)
-        .await?;
+    let mut stream = resp.body.into_async_read();
+    stream.read_to_end(&mut data).await?;
 
     let config: JobConfig = serde_json::from_slice(&data)?;
     Ok(config)
@@ -134,7 +131,7 @@ fn semantic_scores(
     tokenizer: &Tokenizer,
     query: &str,
     candidates: &[String],
-    device: Device,
+    device: &Device,
 ) -> Result<Vec<f32>> {
     // Prepare texts
     let mut all_texts = vec![query.to_string()];
@@ -152,67 +149,54 @@ fn semantic_scores(
 
     // Prepare input tensors
     let max_len = encodings.iter().map(|e| e.get_ids().len()).max().unwrap_or(128).min(128);
-    let input_ids: Vec<Vec<i64>> = encodings
+    let input_ids: Vec<Vec<u32>> = encodings
         .iter()
         .map(|e| {
-            let mut ids = e.get_ids().to_vec();
+            let mut ids: Vec<u32> = e.get_ids().iter().map(|&id| id as u32).collect();
             ids.resize(max_len, 0); // Pad with zeros
             ids
         })
         .collect();
-    let attention_mask: Vec<Vec<i64>> = encodings
+    let attention_mask: Vec<Vec<u32>> = encodings
         .iter()
         .map(|e| {
-            let mut mask = e.get_attention_mask().to_vec();
+            let mut mask: Vec<u32> = e.get_attention_mask().iter().map(|&m| m as u32).collect();
             mask.resize(max_len, 0); // Pad with zeros
             mask
         })
         .collect();
 
     // Convert to tensors
-    let input_ids = Tensor::of_slice2(&input_ids)
-        .to_kind(Kind::Int64)
-        .to_device(device);
-    let attention_mask = Tensor::of_slice2(&attention_mask)
-        .to_kind(Kind::Int64)
-        .to_device(device);
+    let input_ids = Tensor::new(input_ids, device)?.to_dtype(DType::U32)?;
+    let attention_mask = Tensor::new(attention_mask, device)?.to_dtype(DType::U32)?;
+
+    // Create token_type_ids (all zeros for single sequence)
+    let token_type_ids = Tensor::zeros((input_ids.dim(0)?, input_ids.dim(1)?), DType::U32, device)?;
 
     // Run model inference
-    let embeddings = tch::no_grad(|| {
-        let output = model.forward_t(&input_ids, &Some(attention_mask), None, false)?;
-        // Mean pooling (sentence-transformers style)
-        let mask = attention_mask.unsqueeze(-1).to_kind(Kind::Float);
-        let sum_embeddings = output.mul(&mask).sum_dim_intlist(&[1], false, Kind::Float);
-        let mask_sum = mask.sum_dim_intlist(&[1], false, Kind::Float).clamp_min(1.0);
-        Ok::<Tensor, tch::TchError>(sum_embeddings / mask_sum)
-    })?;
+    let embeddings = model.forward(&input_ids, &attention_mask, Some(&token_type_ids))?;
+
+    // Mean pooling (sentence-transformers style)
+    let attention_mask_f32 = attention_mask.to_dtype(DType::F32)?;
+    let mask_expanded = attention_mask_f32.unsqueeze(2)?;
+    let masked_embeddings = embeddings.mul(&mask_expanded)?;
+    let sum_embeddings = masked_embeddings.sum(1)?;
+    let mask_sum = mask_expanded.sum(1)?.clamp(1.0, f64::INFINITY)?;
+    let pooled_embeddings = sum_embeddings.div(&mask_sum)?;
 
     // Split query and candidates
-    let query_emb = embeddings.get(0); // Shape [hidden_size]
-    let candidate_embs = embeddings.slice(0, 1, None, 1); // Shape [n_candidates, hidden_size]
+    let query_emb = pooled_embeddings.get(0)?; // Shape [hidden_size]
+    let candidate_embs = pooled_embeddings.narrow(0, 1, candidates.len())?; // Shape [n_candidates, hidden_size]
 
-    // Compute cosine similarities in batch
-    let dot_products = candidate_embs.matmul(&query_emb.unsqueeze(1)).squeeze(); // Shape [n_candidates]
-    let norm_a = query_emb.square().sum(Kind::Float).sqrt(); // Scalar
-    let norm_b = candidate_embs
-        .square()
-        .sum_dim_intlist(&[1], false, Kind::Float)
-        .sqrt(); // Shape [n_candidates]
+    // Compute cosine similarities
+    let query_norm = query_emb.sqr()?.sum_all()?.sqrt()?;
+    let candidate_norms = candidate_embs.sqr()?.sum(1)?.sqrt()?;
 
-    // Cosine similarity: dot_products / (norm_a * norm_b)
-    let scores = dot_products / (norm_b * norm_a);
+    let dot_products = candidate_embs.matmul(&query_emb.unsqueeze(1)?)?.squeeze(1)?;
+    let scores = dot_products.div(&(candidate_norms.mul(&query_norm)?))?;
 
-    // Convert to Vec<f32>, handling zero norms
-    let mut scores_vec = Vec::with_capacity(candidates.len());
-    for i in 0..candidates.len() {
-        let norm_b_i = f32::from(&norm_b.get(i));
-        let score = if norm_a.equal(&0.0) || norm_b_i == 0.0 {
-            0.0
-        } else {
-            f32::from(&scores.get(i))
-        };
-        scores_vec.push(score);
-    }
+    // Convert to Vec<f32>
+    let scores_vec: Vec<f32> = scores.to_vec1()?;
 
     Ok(scores_vec)
 }
