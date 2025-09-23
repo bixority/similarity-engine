@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  semantic-scoring:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+        - linux/arm64
+      target: runtime
+    image: semantic-scoring:latest
+    container_name: semantic-scoring-service
+    
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    
+    # Environment variables
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+      - MODEL_PATH=${MODEL_PATH:-/app/models}
+      - S3_BUCKET=${S3_BUCKET:-bx-similarity-engine}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-north-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - S3_KEY=${S3_KEY}
+    
+    # Volumes for model storage
+    volumes:
+      - ./models:/app/models:ro
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp/app:exec,size=100M
+    
+    # Network mode (uncomment if serving HTTP)
+    # ports:
+    #   - "8080:8080"
+    
+    # Logging configuration
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  cargo-cache:
+  target-cache:
