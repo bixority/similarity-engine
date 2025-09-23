@@ -29,7 +29,6 @@ RUN case "$TARGETPLATFORM" in \
 RUN TARGET_TRIPLE=$(cat /target-triple.txt) && \
     if [ "$TARGET_TRIPLE" != "x86_64-unknown-linux-gnu" ]; then \
         rustup target add $TARGET_TRIPLE; \
-        # Install cross-compilation tools for ARM64
         if [ "$TARGET_TRIPLE" = "aarch64-unknown-linux-gnu" ]; then \
             apt-get update && apt-get install -y \
                 gcc-aarch64-linux-gnu \
