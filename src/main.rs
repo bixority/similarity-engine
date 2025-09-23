@@ -3,6 +3,7 @@ use aws_sdk_s3::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::Read;
+use aws_config::BehaviorVersion;
 use tch::{Device, Tensor, Kind};
 use tokenizers::Tokenizer;
 use candle_core::{DType, Module};
