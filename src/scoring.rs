@@ -34,7 +34,7 @@ pub fn semantic_scores(
     let input_ids: Vec<Vec<u32>> = encodings
         .iter()
         .map(|e| {
-            let mut ids: Vec<u32> = e.get_ids().iter().map(|&id| id as u32).collect();
+            let mut ids: Vec<u32> = e.get_ids().to_vec();
             ids.resize(max_len, 0); // Pad with zeros
             ids
         })
@@ -42,7 +42,7 @@ pub fn semantic_scores(
     let attention_mask: Vec<Vec<u32>> = encodings
         .iter()
         .map(|e| {
-            let mut mask: Vec<u32> = e.get_attention_mask().iter().map(|&m| m as u32).collect();
+            let mut mask: Vec<u32> = e.get_attention_mask().to_vec();
             mask.resize(max_len, 0); // Pad with zeros
             mask
         })
