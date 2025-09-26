@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
 
     // Read S3 bucket and key from environment variables
     let bucket = env::var("S3_BUCKET").expect("S3_BUCKET environment variable not set");
-    let key = env::var("S3_KEY").expect("S3_KEY environment variable not set");
+    let key = env::var("JOB_OBJECT_KEY").expect("JOB_OBJECT_KEY environment variable not set");
 
     // Download and parse JSON file from S3
     let job_config = download_job_config(&s3_client, &bucket, &key).await?;

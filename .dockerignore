@@ -1,0 +1,8 @@
+*
+
+!src
+!Cargo.toml
+!Cargo.lock
+!config.toml
+!LICENSE
+!README.md

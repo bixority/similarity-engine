@@ -1,6 +1,24 @@
-version: '3.8'
+name: semantic-engine
 
 services:
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: "${AWS_ACCESS_KEY_ID:-root}"
+      MINIO_ROOT_PASSWORD: "${AWS_SECRET_ACCESS_KEY:-rootroot}"
+    command: [
+      "server",
+      "/data",
+      "--console-address",
+      ":9001"
+    ]
+    volumes:
+      - minio-data:/data
+
   semantic-scoring:
     build:
       context: .
@@ -31,7 +49,7 @@ services:
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-north-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - S3_KEY=${S3_KEY}
+      - JOB_OBJECT_KEY=${JOB_OBJECT_KEY}
     
     # Volumes for model storage
     volumes:
@@ -58,3 +76,4 @@ services:
 volumes:
   cargo-cache:
   target-cache:
+  minio-data:
